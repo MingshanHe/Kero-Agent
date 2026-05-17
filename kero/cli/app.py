@@ -13,6 +13,7 @@ from kero.evolution import ReflectionEngine
 from kero.llm import LLMClient, LLMError, RuleBasedResponder
 from kero.llm.providers import list_providers
 from kero.memory import MemoryContext, MemoryManager
+from kero.tts import TTSError, speak_text
 
 
 HELP_TEXT = """
@@ -24,9 +25,10 @@ Commands:
   /forget <substring>   remove matching memories
   /reflect              run reflection now
   /model                show active model and supported providers
-  /config               show local data path
+  /config               show active configuration and local data path
   /memory-status        show memory file status
   /clear                clear current short-term context
+  /speak                play the last LLM reply as speech
   /exit                 reflect and exit
 """.strip()
 
@@ -57,10 +59,10 @@ def main(argv: list[str] | None = None) -> None:
         config_path=getattr(args, "config_file", None),
         overrides=overrides,
     )
-    _run_chat(config)
+    _run_chat(config, auto_speak=getattr(args, "speak", False))
 
 
-def _run_chat(config: KeroConfig) -> None:
+def _run_chat(config: KeroConfig, auto_speak: bool = False) -> None:
     memory = MemoryManager(config)
     llm = LLMClient(config.llm)
     fallback = RuleBasedResponder()
@@ -72,6 +74,7 @@ def _run_chat(config: KeroConfig) -> None:
     if not llm.is_configured():
         print("LLM is not configured or provider is unsupported; using local fallback replies.")
 
+    last_reply = ""
     while True:
         try:
             user_input = input("\nYou> ").strip()
@@ -83,7 +86,7 @@ def _run_chat(config: KeroConfig) -> None:
         if not user_input:
             continue
 
-        handled = _handle_command(user_input, config, memory, reflection, llm)
+        handled = _handle_command(user_input, config, memory, reflection, llm, last_reply)
         if handled == "exit":
             break
         if handled:
@@ -92,7 +95,13 @@ def _run_chat(config: KeroConfig) -> None:
         context = memory.build_context(user_input)
         reply = _reply(user_input, context, memory, llm, fallback)
         print(f"Kero> {reply}")
+        last_reply = reply
         memory.record_turn(user_input, reply)
+        if auto_speak and reply:
+            try:
+                speak_text(reply)
+            except TTSError as exc:
+                print(f"Speech playback failed: {exc}")
 
         result = reflection.maybe_reflect(trigger="interval")
         if result:
@@ -141,6 +150,7 @@ def _handle_command(
     memory: MemoryManager,
     reflection: ReflectionEngine,
     llm: LLMClient,
+    last_reply: str,
 ) -> bool | str:
     if command in {"/help", "help"}:
         print(HELP_TEXT)
@@ -218,6 +228,16 @@ def _handle_command(
         )
         return True
 
+    if command == "/speak":
+        if not last_reply:
+            print("No LLM reply available to speak yet.")
+            return True
+        try:
+            speak_text(last_reply)
+        except TTSError as exc:
+            print(f"Speech playback failed: {exc}")
+        return True
+
     if command == "/clear":
         memory.clear_session()
         print("Current short-term context cleared.")
@@ -253,6 +273,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url", help="Override llm.base_url for this chat session")
     parser.add_argument("--api-key", help="Override llm.api_key for this chat session")
     parser.add_argument("--no-llm", action="store_true", help="Disable LLM calls for this chat session")
+    parser.add_argument("--speak", action="store_true", help="Play LLM replies as audio automatically")
 
     subparsers = parser.add_subparsers(dest="command")
     add_setup_parser(subparsers)

@@ -16,6 +16,8 @@ python -m kero
 
 首次运行如果没有配置 LLM，Kero 会进入本地规则 fallback 模式，方便先验证 CLI 和 memory 链路。
 
+在对话中输入 `/speak` 可以把最后一次 LLM 回复转换为语音并播放；启动时加 `--speak` 可自动播放每次回答。
+
 ## Setup
 
 交互式配置：

@@ -16,4 +16,4 @@ def test_setup_help(capsys) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["setup", "--help"])
     assert exc.value.code == 0
-    assert "interactive Kero setup" in capsys.readouterr().out
+    assert "--only-copilot" in capsys.readouterr().out
