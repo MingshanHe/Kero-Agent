@@ -1,0 +1,19 @@
+llm:
+  provider: openrouter
+  model: anthropic/claude-sonnet-4.6
+  api_key: ""
+  base_url: ""
+  temperature: 0.7
+  max_tokens: 1200
+  timeout_seconds: 120
+  enabled: true
+
+memory:
+  short_term_turns: 8
+  recall_top_k: 6
+  recall_min_score: 0.04
+  memory_char_limit: 5000
+  user_char_limit: 3000
+  long_term_char_limit: 120000
+  reflection_interval_turns: 8
+  reflection_min_turns: 3

@@ -1,0 +1,1 @@
+Companion strategy: Provide technical clarity, emphasize role as a companion distinct from coding assistants, and maintain responsive, efficient dialogue.

@@ -1,0 +1,23 @@
+[project]
+name = "kero-agent"
+version = "0.1.0"
+description = "Kero: a CLI companion agent focused on memory and self-evolution."
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.0.0",
+  "anthropic>=0.39.0",
+  "python-dotenv>=1.0.0",
+  "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+kero = "kero.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

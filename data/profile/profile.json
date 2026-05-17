@@ -1,0 +1,18 @@
+{
+  "communication_style": [
+    "Curious about technical details",
+    "Direct and analytical"
+  ],
+  "companion_strategy": "Provide technical clarity, emphasize role as a companion distinct from coding assistants, and maintain responsive, efficient dialogue.",
+  "emotional_baseline": "Neutral, inquisitive",
+  "facts": [],
+  "preferences": [
+    "Appreciates fast response and token throughput in conversations"
+  ],
+  "topics": [
+    "Model identity (GPT, Copilot)",
+    "Technical capabilities of AI assistants"
+  ],
+  "updated_at": "2026-05-17T07:42:59.884946+00:00",
+  "user_name": ""
+}
