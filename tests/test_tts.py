@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from kero.tts import TTSError, play_audio, speak_text, text_to_speech
+from kero.tools.tts_tools import TTSError, play_audio, speak_text, text_to_speech
 
 
 def test_text_to_speech_missing_text() -> None:
@@ -33,9 +33,9 @@ def test_speak_text_creates_and_removes_audio(tmp_path, monkeypatch) -> None:
     dummy_module.gTTS = DummyTTS
 
     monkeypatch.setitem(sys.modules, "gtts", dummy_module)
-    monkeypatch.setattr("kero.tts.shutil.which", lambda name: "/usr/bin/ffplay")
-    monkeypatch.setattr("kero.tts.subprocess.run", lambda command, check: None)
-    monkeypatch.setattr("kero.tts.tempfile.mktemp", lambda suffix: str(temp_audio))
+    monkeypatch.setattr("kero.tools.tts_tools.shutil.which", lambda name: "/usr/bin/ffplay")
+    monkeypatch.setattr("kero.tools.tts_tools.subprocess.run", lambda command, check: None)
+    monkeypatch.setattr("kero.tools.tts_tools.tempfile.mktemp", lambda suffix: str(temp_audio))
 
     speak_text("hello")
     assert saved_paths == [str(temp_audio)]

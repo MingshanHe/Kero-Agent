@@ -1,5 +1,5 @@
 from kero.llm.client import LLMClient, LLMError, LLMResponse, RuleBasedResponder
-from kero.llm.providers import ProviderProfile, get_provider, list_providers
+from kero.llm.providers import ProviderProfile, get_provider, list_providers, resolve_provider
 
 __all__ = [
     "LLMClient",
@@ -9,4 +9,5 @@ __all__ = [
     "RuleBasedResponder",
     "get_provider",
     "list_providers",
+    "resolve_provider",
 ]

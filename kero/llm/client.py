@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import json
+import shlex
+import shutil
+import subprocess
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
+
+import requests
 
 from kero.config import LLMConfig
-from kero.llm.providers import ProviderProfile, get_provider
+from kero.llm.providers import ProviderProfile, is_local_provider, resolve_provider
 
 
 class LLMError(RuntimeError):
@@ -22,7 +29,11 @@ class LLMResponse:
 class LLMClient:
     def __init__(self, config: LLMConfig):
         self.config = config
-        self.profile = get_provider(config.provider)
+        self.profile = resolve_provider(
+            config.provider,
+            user_providers=config.providers,
+            custom_providers=config.custom_providers,
+        )
 
     def is_configured(self) -> bool:
         if not self.config.enabled:
@@ -32,7 +43,9 @@ class LLMClient:
             return False
         if profile.api_mode == "unsupported":
             return False
-        if self._is_local(profile):
+        if profile.api_mode.startswith("local_"):
+            return self._command_available(self._resolve_command(profile))
+        if is_local_provider(profile):
             return True
         return bool(profile.resolve_api_key(self.config.api_key))
 
@@ -44,6 +57,8 @@ class LLMClient:
             raise LLMError(profile.unsupported_reason or f"Provider {profile.name} is unsupported.")
         if not self.config.enabled:
             raise LLMError("LLM is disabled.")
+        if profile.api_mode.startswith("local_"):
+            return self._local_process_complete(profile, messages, purpose=purpose)
         if profile.api_mode == "anthropic_messages":
             return self._anthropic_complete(profile, messages)
         if profile.api_mode == "chat_completions":
@@ -52,36 +67,118 @@ class LLMClient:
 
     def _chat_completions(self, profile: ProviderProfile, messages: list[dict[str, str]]) -> LLMResponse:
         api_key = profile.resolve_api_key(self.config.api_key)
-        if not api_key and not self._is_local(profile):
+        base_url = profile.resolve_base_url(self.config.base_url)
+        local_endpoint = self._is_local_endpoint(base_url)
+        if not api_key and not local_endpoint:
             raise LLMError(
                 f"No API key found for provider {profile.name}. "
                 f"Set one of: {', '.join(profile.env_vars) or 'KERO_API_KEY'}"
             )
-        try:
-            from openai import OpenAI
-        except Exception as exc:
-            raise LLMError("The openai package is required for chat_completions providers.") from exc
 
-        base_url = self.config.base_url or profile.base_url
         model = self.config.model or profile.default_model
-        client_kwargs: dict[str, Any] = {"base_url": base_url}
-        if api_key:
-            client_kwargs["api_key"] = api_key
-        else:
-            client_kwargs["api_key"] = "not-needed"
-        if profile.default_headers:
-            client_kwargs["default_headers"] = profile.default_headers
-        client = OpenAI(**client_kwargs)
-        kwargs: dict[str, Any] = {
+
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
-            "timeout": self.config.timeout_seconds,
         }
-        response = client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content or ""
+        if self.config.max_tokens:
+            payload["max_tokens"] = self.config.max_tokens
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "kero-agent",
+        }
+        if api_key and not local_endpoint:
+            headers["Authorization"] = f"Bearer {api_key}"
+        if profile.default_headers:
+            headers.update(profile.default_headers)
+
+        endpoint = self._chat_completions_endpoint(base_url, profile=profile)
+        try:
+            response = requests.post(
+                endpoint,
+                json=payload,
+                headers=headers,
+                timeout=self.config.timeout_seconds,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.Timeout as exc:
+            raise LLMError(f"Provider {profile.name} timed out after {self.config.timeout_seconds}s") from exc
+        except requests.RequestException as exc:
+            detail = self._response_error_detail(getattr(exc, "response", None))
+            suffix = f": {detail}" if detail else ""
+            raise LLMError(f"Provider {profile.name} request failed{suffix}") from exc
+        except ValueError as exc:
+            raise LLMError(f"Provider {profile.name} returned non-JSON response.") from exc
+
+        content = self._extract_chat_content(data)
         return LLMResponse(content=content.strip(), provider=profile.name, model=model)
+
+    @staticmethod
+    def _chat_completions_endpoint(base_url: str, *, profile: ProviderProfile | None = None) -> str:
+        normalized = (base_url or "").strip().rstrip("/")
+        if not normalized:
+            raise LLMError("No base_url configured for chat_completions provider.")
+        if normalized.endswith("/chat/completions"):
+            return normalized
+        if LLMClient._is_custom_local_root_url(normalized, profile):
+            return normalized + "/v1/chat/completions"
+        return normalized + "/chat/completions"
+
+    @staticmethod
+    def _is_local_endpoint(base_url: str) -> bool:
+        hostname = (urlparse(base_url).hostname or "").lower()
+        return hostname in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+    @staticmethod
+    def _is_custom_local_root_url(base_url: str, profile: ProviderProfile | None) -> bool:
+        if profile is None or not profile.name.startswith("custom"):
+            return False
+        parsed = urlparse(base_url)
+        hostname = (parsed.hostname or "").lower()
+        if hostname not in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+            return False
+        return parsed.path in {"", "/"}
+
+    @staticmethod
+    def _response_error_detail(response: Any) -> str:
+        if response is None:
+            return ""
+        status = getattr(response, "status_code", "")
+        text = (getattr(response, "text", "") or "").strip()
+        if len(text) > 500:
+            text = text[:500] + "..."
+        return f"HTTP {status} {text}".strip()
+
+    @staticmethod
+    def _extract_chat_content(data: Any) -> str:
+        if not isinstance(data, dict):
+            raise LLMError("Provider returned an unexpected chat completion response.")
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            message = choice.get("message") if isinstance(choice, dict) else {}
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    parts: list[str] = []
+                    for item in content:
+                        if isinstance(item, dict) and isinstance(item.get("text"), str):
+                            parts.append(item["text"])
+                    return "\n".join(parts)
+            text = choice.get("text") if isinstance(choice, dict) else None
+            if isinstance(text, str):
+                return text
+        message = data.get("message")
+        if isinstance(message, dict) and isinstance(message.get("content"), str):
+            return message["content"]
+        if isinstance(data.get("response"), str):
+            return data["response"]
+        raise LLMError("Provider returned no chat completion content.")
 
     def _anthropic_complete(self, profile: ProviderProfile, messages: list[dict[str, str]]) -> LLMResponse:
         api_key = profile.resolve_api_key(self.config.api_key)
@@ -109,7 +206,7 @@ class LLMClient:
 
         client = anthropic.Anthropic(
             api_key=api_key,
-            base_url=self.config.base_url or profile.base_url or None,
+            base_url=profile.resolve_base_url(self.config.base_url) or None,
             timeout=self.config.timeout_seconds,
         )
         response = client.messages.create(
@@ -126,10 +223,75 @@ class LLMClient:
             model=self.config.model or profile.default_model,
         )
 
+    def _local_process_complete(
+        self,
+        profile: ProviderProfile,
+        messages: list[dict[str, str]],
+        *,
+        purpose: str,
+    ) -> LLMResponse:
+        command = self._resolve_command(profile)
+        if not command:
+            raise LLMError(
+                f"Local provider {profile.name} needs a command. "
+                "Set llm.command, llm.provider_options.command, or one of: "
+                f"{', '.join(profile.command_env_vars) or 'KERO_LLM_COMMAND'}"
+            )
+
+        model = self.config.model or profile.default_model
+        payload = {
+            "provider": profile.name,
+            "model": model,
+            "messages": messages,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "purpose": purpose,
+            "options": self.config.provider_options,
+        }
+        try:
+            completed = subprocess.run(
+                shlex.split(command),
+                input=json.dumps(payload, ensure_ascii=False),
+                text=True,
+                capture_output=True,
+                timeout=self.config.timeout_seconds,
+                check=True,
+            )
+        except FileNotFoundError as exc:
+            raise LLMError(f"Local provider command not found: {command}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise LLMError(f"Local provider {profile.name} timed out after {self.config.timeout_seconds}s") from exc
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            detail = f": {stderr}" if stderr else ""
+            raise LLMError(f"Local provider {profile.name} failed{detail}") from exc
+
+        output = (completed.stdout or "").strip()
+        if not output:
+            raise LLMError(f"Local provider {profile.name} returned no content.")
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError:
+            content = output
+        else:
+            content = str(data.get("content") or data.get("text") or data.get("response") or "").strip()
+        return LLMResponse(content=content, provider=profile.name, model=model)
+
+    def _resolve_command(self, profile: ProviderProfile) -> str:
+        explicit = self.config.command or str(self.config.provider_options.get("command") or "")
+        if explicit:
+            return explicit
+        return profile.resolve_command()
+
     @staticmethod
-    def _is_local(profile: ProviderProfile) -> bool:
-        base = (profile.base_url or "").lower()
-        return profile.name == "custom" and any(host in base for host in ("localhost", "127.0.0.1", "0.0.0.0"))
+    def _command_available(command: str) -> bool:
+        if not command:
+            return False
+        try:
+            executable = shlex.split(command)[0]
+        except ValueError:
+            return False
+        return bool(shutil.which(executable))
 
 
 class RuleBasedResponder:

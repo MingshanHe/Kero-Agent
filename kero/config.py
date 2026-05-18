@@ -117,11 +117,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "model": "anthropic/claude-sonnet-4.6",
         "api_key": "",
         "base_url": "",
+        "command": "",
+        "provider_options": {},
         "temperature": 0.7,
         "max_tokens": 1200,
         "timeout_seconds": 120.0,
         "enabled": True,
     },
+    "providers": {},
+    "custom_providers": [],
     "memory": {
         "short_term_turns": 8,
         "recall_top_k": 6,
@@ -140,6 +144,7 @@ CONFIG_ENV_MAP: dict[tuple[str, ...], tuple[str, type]] = {
     ("llm", "model"): ("KERO_MODEL", str),
     ("llm", "api_key"): ("KERO_API_KEY", str),
     ("llm", "base_url"): ("KERO_BASE_URL", str),
+    ("llm", "command"): ("KERO_LLM_COMMAND", str),
     ("llm", "temperature"): ("KERO_TEMPERATURE", float),
     ("llm", "max_tokens"): ("KERO_MAX_TOKENS", int),
     ("llm", "timeout_seconds"): ("KERO_TIMEOUT_SECONDS", float),
@@ -273,9 +278,13 @@ def redact_config(data: dict[str, Any]) -> dict[str, Any]:
 def validate_config_data(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     try:
-        from kero.llm.providers import get_provider
+        from kero.llm.providers import resolve_provider
         provider = str(_deep_get(data, ("llm", "provider"), "") or "")
-        if provider and get_provider(provider) is None:
+        if provider and resolve_provider(
+            provider,
+            user_providers=_deep_get(data, ("providers",), {}),
+            custom_providers=_deep_get(data, ("custom_providers",), []),
+        ) is None:
             errors.append(f"Unknown llm.provider: {provider}")
     except Exception:
         pass
@@ -306,6 +315,10 @@ class LLMConfig:
     model: str = "anthropic/claude-sonnet-4.6"
     api_key: str = ""
     base_url: str = ""
+    command: str = ""
+    provider_options: dict[str, Any] = field(default_factory=dict)
+    providers: dict[str, Any] = field(default_factory=dict)
+    custom_providers: list[dict[str, Any]] = field(default_factory=list)
     temperature: float = 0.7
     max_tokens: int = 1200
     timeout_seconds: float = 120.0
@@ -347,6 +360,10 @@ class KeroConfig:
             model=str(_deep_get(data, ("llm", "model"), "anthropic/claude-sonnet-4.6")),
             api_key=str(_deep_get(data, ("llm", "api_key"), "")),
             base_url=str(_deep_get(data, ("llm", "base_url"), "")),
+            command=str(_deep_get(data, ("llm", "command"), "")),
+            provider_options=dict(_deep_get(data, ("llm", "provider_options"), {}) or {}),
+            providers=dict(_deep_get(data, ("providers",), {}) or {}),
+            custom_providers=list(_deep_get(data, ("custom_providers",), []) or []),
             temperature=float(_deep_get(data, ("llm", "temperature"), 0.7)),
             max_tokens=int(_deep_get(data, ("llm", "max_tokens"), 1200)),
             timeout_seconds=float(_deep_get(data, ("llm", "timeout_seconds"), 120.0)),

@@ -13,7 +13,7 @@ from kero.evolution import ReflectionEngine
 from kero.llm import LLMClient, LLMError, RuleBasedResponder
 from kero.llm.providers import list_providers
 from kero.memory import MemoryContext, MemoryManager
-from kero.tts import TTSError, speak_text
+from kero.tools.tts_tools import TTSError, speak_text
 
 
 HELP_TEXT = """
@@ -204,6 +204,7 @@ def _handle_command(
                     "provider": config.llm.provider,
                     "model": config.llm.model,
                     "base_url": config.llm.base_url or "(provider default)",
+                    "command": config.llm.command or config.llm.provider_options.get("command") or "",
                     "available_providers": [provider.name for provider in list_providers()],
                 },
                 ensure_ascii=False,
