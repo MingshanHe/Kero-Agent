@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kero-Agent</title>
+  <meta name="description" content="Kero-Agent: an edge-native companion robot with hierarchical memory and a local large language model running on the Rockchip RK3588. IEEE/SICE SII 2027.">
+  <meta name="author" content="Mingshan He, Hiroto Tanaka">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Kero-Agent: An Edge-Native Companion Robot with Hierarchical Memory and Local LLM">
+  <meta property="og:description" content="Local LLM inference, hierarchical long-term memory, and multimodal sensing on a single RK3588 board. IEEE/SICE SII 2027.">
+  <meta property="og:url" content="https://mingshanhe.github.io/Kero-Agent/">
+  <meta property="og:image" content="https://mingshanhe.github.io/Kero-Agent/static/images/prototype.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='18' cy='16' r='12' fill='%23222'/%3E%3Ccircle cx='46' cy='16' r='12' fill='%23222'/%3E%3Ccircle cx='32' cy='38' r='24' fill='%23222'/%3E%3Ccircle cx='24' cy='36' r='4' fill='%237fd6c2'/%3E%3Ccircle cx='40' cy='36' r='4' fill='%237fd6c2'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #fbf8f3;
+      --bg-alt: #f3eee5;
+      --surface: #ffffff;
+      --text: #1f2328;
+      --muted: #5c6470;
+      --line: #e3ddd2;
+      --accent: #1f8a72;
+      --accent-soft: #e2f3ee;
+      --accent-text: #146653;
+      --warn: #a6620e;
+      --warn-soft: #fbefdc;
+      --code-bg: #f5f2ec;
+      --shadow: 0 1px 2px rgba(31, 35, 40, .06), 0 8px 24px rgba(31, 35, 40, .06);
+      --radius: 14px;
+      --maxw: 1040px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #14171a;
+        --bg-alt: #1a1e22;
+        --surface: #1f2428;
+        --text: #e8e6e1;
+        --muted: #a2a9b1;
+        --line: #30363c;
+        --accent: #5cc8ad;
+        --accent-soft: #183630;
+        --accent-text: #7fd6c2;
+        --warn: #e9b064;
+        --warn-soft: #3a2d1a;
+        --code-bg: #191d21;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #14171a;
+      --bg-alt: #1a1e22;
+      --surface: #1f2428;
+      --text: #e8e6e1;
+      --muted: #a2a9b1;
+      --line: #30363c;
+      --accent: #5cc8ad;
+      --accent-soft: #183630;
+      --accent-text: #7fd6c2;
+      --warn: #e9b064;
+      --warn-soft: #3a2d1a;
+      --code-bg: #191d21;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.65 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent-text); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    img { max-width: 100%; height: auto; display: block; }
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 16px; }
+    section { padding: 64px 0; }
+    section.alt { background: var(--bg-alt); }
+    h1, h2, h3 { font-family: "Fraunces", Georgia, serif; font-weight: 650; letter-spacing: -.01em; line-height: 1.2; margin: 0; }
+    h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); margin-bottom: 20px; }
+    h3 { font-size: 1.2rem; font-weight: 500; margin-bottom: 8px; }
+    p { margin: 0 0 14px; }
+    .lede { color: var(--muted); max-width: 72ch; }
+    .eyebrow { font-size: .78rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent-text); margin-bottom: 10px; }
+
+    /* Hero */
+    .hero { padding: 56px 0 40px; text-align: center; }
+    .venue { display: inline-block; font-size: .8rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-text); background: var(--accent-soft); border-radius: 999px; padding: 6px 14px; margin-bottom: 22px; }
+    .hero h1 { font-size: clamp(2rem, 5.2vw, 3.4rem); max-width: 22ch; margin: 0 auto; }
+    .hero h1 .sub { display: block; font-size: .5em; font-weight: 500; color: var(--muted); margin-top: 14px; letter-spacing: 0; }
+    .authors { margin-top: 26px; font-size: 1.1rem; font-weight: 500; }
+    .authors a { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--line); }
+    .affil { color: var(--muted); font-size: .95rem; margin-top: 4px; }
+    .links { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 26px; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px; font-weight: 500; font-size: .95rem; text-decoration: none; border: 1px solid var(--text); color: var(--bg); background: var(--text); transition: transform .15s ease, opacity .15s ease; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+    .btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+    .btn svg { width: 18px; height: 18px; flex: none; }
+    .hero-figure { position: relative; margin: 40px auto 0; max-width: 560px; }
+    .hero-figure::before { content: ""; position: absolute; inset: 8% 4% 0; background: radial-gradient(closest-side, var(--accent-soft), transparent); z-index: 0; }
+    .hero-figure img { position: relative; z-index: 1; margin: 0 auto; width: 100%; }
+    .hero-caption { color: var(--muted); font-size: .9rem; margin-top: 8px; }
+
+    /* Stats */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 44px; }
+    .stat { background: var(--surface); padding: 22px 18px; text-align: left; }
+    .stat .num { font-family: "Fraunces", Georgia, serif; font-size: 2rem; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .stat .num small { font-size: .5em; font-weight: 500; color: var(--muted); margin-left: 2px; }
+    .stat .lbl { color: var(--muted); font-size: .88rem; margin-top: 6px; line-height: 1.4; }
+
+    /* Figures */
+    figure { margin: 0; }
+    .fig { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); }
+    .fig img { margin: 0 auto; }
+    figcaption { color: var(--muted); font-size: .9rem; margin-top: 12px; line-height: 1.5; }
+    figcaption b { color: var(--text); font-weight: 600; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+    .grid-split { display: grid; grid-template-columns: 1.1fr .9fr; gap: 36px; align-items: start; }
+
+    /* Layer cards */
+    .layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 28px 0; }
+    .layer { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+    .layer .tag { font-size: .72rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent-text); }
+    .layer h3 { margin-top: 6px; }
+    .layer p { font-size: .92rem; color: var(--muted); margin: 0 0 10px; }
+    .layer code { font-size: .78rem; }
+    code, pre { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace; }
+    code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: .85em; word-break: break-word; }
+
+    .formula { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 18px 22px; margin: 18px 0; overflow-x: auto; }
+    .formula .eq { font-family: "Fraunces", Georgia, serif; font-size: 1.25rem; white-space: nowrap; }
+    .formula var { font-style: italic; }
+    .formula ul { margin: 12px 0 0; padding-left: 20px; color: var(--muted); font-size: .93rem; }
+
+    .points { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+    .points li { padding-left: 26px; position: relative; }
+    .points li::before { content: ""; position: absolute; left: 4px; top: .62em; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+    /* Requirements */
+    .reqs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 8px; }
+    .req { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; }
+    .req .id { font-family: "Fraunces", Georgia, serif; font-size: 1.5rem; font-weight: 650; }
+    .req h3 { font-family: "Inter", sans-serif; font-size: 1rem; font-weight: 600; margin: 2px 0 8px; }
+    .req p { font-size: .9rem; color: var(--muted); margin-bottom: 14px; }
+    .status { margin-top: auto; display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; border-radius: 999px; padding: 4px 10px; background: var(--accent-soft); color: var(--accent-text); }
+    .status.partial { background: var(--warn-soft); color: var(--warn); }
+
+    /* Tables */
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; font-size: .93rem; font-variant-numeric: tabular-nums; }
+    th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { font-weight: 600; color: var(--muted); font-size: .8rem; letter-spacing: .04em; text-transform: uppercase; background: var(--bg-alt); }
+    tr:last-child td { border-bottom: 0; }
+    td.n { text-align: right; }
+    th.n { text-align: right; }
+    td.low { color: var(--warn); font-weight: 600; }
+    tr.total td { font-weight: 600; background: var(--accent-soft); color: var(--accent-text); }
+
+    .note { font-size: .9rem; color: var(--muted); margin-top: 12px; }
+
+    /* BibTeX */
+    .bib { position: relative; }
+    .bib pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; padding-right: 92px; overflow-x: auto; font-size: .85rem; line-height: 1.6; margin: 0; }
+    .copy { position: absolute; top: 12px; right: 12px; font: 500 .82rem "Inter", sans-serif; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; }
+    .copy:hover { border-color: var(--accent); }
+
+    footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: .88rem; }
+    footer p { margin: 0 0 6px; }
+
+    .theme-toggle { position: fixed; top: 14px; right: 14px; z-index: 10; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; display: grid; place-items: center; box-shadow: var(--shadow); }
+    .theme-toggle svg { width: 18px; height: 18px; }
+
+    @media (max-width: 900px) {
+      .layers, .reqs { grid-template-columns: repeat(2, 1fr); }
+      .grid-split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      section { padding: 48px 0; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .layers, .reqs { grid-template-columns: 1fr; }
+      .stat .num { font-size: 1.6rem; }
+      .formula .eq { font-size: 1.05rem; }
+    }
+  </style>
+</head>
+<body>
+
+<button class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+</button>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="venue">IEEE/SICE SII 2027</span>
+    <h1>Kero-Agent
+      <span class="sub">An Edge-Native Companion Robot with Hierarchical Memory and Local Large Language Model</span>
+    </h1>
+    <div class="authors">
+      <a href="https://github.com/MingshanHe">Mingshan He</a><sup>1</sup> &nbsp;and&nbsp; Hiroto Tanaka<sup>1</sup>
+    </div>
+    <div class="affil"><sup>1</sup>Department of Mechanical Engineering, School of Engineering, Institute of Science Tokyo</div>
+
+    <nav class="links" aria-label="Project links">
+      <a class="btn" aria-disabled="true" title="Paper link coming soon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>
+        Paper (coming soon)
+      </a>
+      <a class="btn" href="https://github.com/MingshanHe/Kero-Agent">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>
+        Code
+      </a>
+      <a class="btn ghost" href="#bibtex">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10M7 12h10M7 17h6"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        BibTeX
+      </a>
+    </nav>
+
+    <figure class="hero-figure">
+      <img src="static/images/prototype.webp" width="1200" height="811" alt="The Kero-Agent companion robot: a small, round robot covered in black wool yarn with white pom-pom paws, black fluffy ears, and glowing OLED eyes.">
+    </figure>
+    <p class="hero-caption">The Kero-Agent prototype: a wool-covered companion robot whose LLM, memory, speech, and sensing all run onboard.</p>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><div class="num">75<small>ms</small></div><div class="lbl">time to first token, best 1B-class models</div></div>
+      <div class="stat" role="listitem"><div class="num">15<small>tok/s</small></div><div class="lbl">onboard generation speed on the RK3588 NPU</div></div>
+      <div class="stat" role="listitem"><div class="num">103,680</div><div class="lbl">retrieval probes over 30 days and 72 simulated users</div></div>
+      <div class="stat" role="listitem"><div class="num">0.863</div><div class="lbl">Success@8 (Top-1 0.799, MRR 0.818)</div></div>
+    </div>
+  </div>
+</header>
+
+<section class="alt" id="abstract">
+  <div class="wrap">
+    <div class="eyebrow">Abstract</div>
+    <h2>Long-term companionship, entirely on the robot</h2>
+    <p class="lede" style="color: var(--text); max-width: 80ch;">
+      Companion robots used in homes and care environments need fast response and long-term user memory. However, cloud-based inference sends interaction data to external services and also brings continuous API costs. This paper presents Kero-Agent, an edge-native companion robot system based on the Rockchip RK3588. The system combines local LLM inference, multimodal sensing, and long-term memory. Its memory is divided into recent, episodic, semantic, and core information. An asynchronous reflection process is used to update user context without changing the model weights. In onboard inference tests, the best 1B-class configurations achieved a time to first token of about 75&nbsp;ms and a generation speed of 15&nbsp;tokens/s. We also conducted a 30-day memory stress test with 72 simulated users and 103,680 retrieval probes. The system achieved a Success score of 0.863, a Top-1 Success of 0.799, and a mean reciprocal rank of 0.818. A physical prototype was built with edge computing, tactile and inertial sensing, audio interaction, and expressive output. The results show that long-term companion services can run locally on resource-constrained robots with practical inference speed and stable memory retrieval.
+    </p>
+  </div>
+</section>
+
+<section id="overview">
+  <div class="wrap">
+    <div class="eyebrow">System</div>
+    <h2>From model conversion to embodied output</h2>
+    <p class="lede">Open-source LLMs are converted to the RKLLM format and served by a local, OpenAI-compatible endpoint on the RK3588 NPU. The same board retrieves long-term user context, coordinates sensor events, and drives speech and expressive behavior. Interaction is turn-based: the LLM request is sent only after speech recognition returns the full transcript. No network connection is needed during normal dialogue and memory processing.</p>
+    <figure class="fig" style="margin-top: 24px;">
+      <img src="static/images/architecture.png" width="2200" height="468" loading="lazy" alt="Architecture diagram: Hugging Face models are converted with the RKLLM Toolkit, served through the RKLLM API on the RK NPU, and connected to Kero-Agent's memory system, speech services, sensor interface, and action interface.">
+    </figure>
+    <figcaption><b>Figure 1.</b> End-to-end Kero-Agent architecture: local model conversion and serving, multimodal sensing, memory retrieval, and embodied output.</figcaption>
+  </div>
+</section>
+
+<section class="alt" id="memory">
+  <div class="wrap">
+    <div class="eyebrow">Memory</div>
+    <h2>Hierarchical, governed long-term memory</h2>
+    <p class="lede">User context is split into four layers, from short-lived dialogue to stable identity. Every layer is stored as a local file. Personalization comes from updating this stored context; the LLM weights never change.</p>
+
+    <div class="layers">
+      <div class="layer"><div class="tag">Layer 1</div><h3>Recent</h3><p>The last eight dialogue turns, for short-term coherence.</p><code>sessions/current.jsonl</code></div>
+      <div class="layer"><div class="tag">Layer 2</div><h3>Episodic</h3><p>Events, reflection summaries, and extracted facts, each with an importance score and timestamp.</p><code>memory/long_term.jsonl</code></div>
+      <div class="layer"><div class="tag">Layer 3</div><h3>Semantic</h3><p>A structured profile of facts, preferences, communication style, and topics.</p><code>profile/profile.json</code></div>
+      <div class="layer"><div class="tag">Layer 4</div><h3>Core</h3><p>A bounded user profile and companion strategy, inserted into every prompt.</p><code>memories/USER.md</code> <code>MEMORY.md</code></div>
+    </div>
+
+    <figure class="fig">
+      <img src="static/images/memory.png" width="1800" height="939" loading="lazy" alt="Memory system diagram showing memory ingestion, four storage layers, retrieval by keyword, semantic, temporal and emotion-based search, and memory update by merging, recency updates, strengthening and forgetting.">
+    </figure>
+    <figcaption><b>Figure 2.</b> Hierarchical memory and asynchronous reflection. Recent context supports immediate dialogue; episodic, semantic, and core layers retain progressively more stable information.</figcaption>
+
+    <div class="grid-2" style="margin-top: 40px;">
+      <div>
+        <h3>Lightweight retrieval</h3>
+        <p>Each stored item <var>m</var> is scored against the query <var>q</var> on the CPU. Because no neural embedding model is used, retrieval never competes with the LLM for the NPU.</p>
+        <div class="formula" role="math" aria-label="s of q and m equals 0.50 times s sem plus 0.30 times s lex plus 0.12 times w m plus 0.08 times s rec">
+          <div class="eq"><var>s</var>(<var>q</var>,<var>m</var>) = 0.50&thinsp;<var>s</var><sub>sem</sub> + 0.30&thinsp;<var>s</var><sub>lex</sub> + 0.12&thinsp;<var>w</var><sub><var>m</var></sub> + 0.08&thinsp;<var>s</var><sub>rec</sub></div>
+          <ul>
+            <li><var>s</var><sub>sem</sub>: cosine similarity of 256-d signed feature-hashing vectors</li>
+            <li><var>s</var><sub>lex</sub>: fraction of query tokens that also appear in <var>m</var></li>
+            <li><var>w</var><sub><var>m</var></sub>: importance assigned when the item is written</li>
+            <li><var>s</var><sub>rec</sub> = 0.5<sup><var>a</var>/60</sup>, where <var>a</var> is the item's age in days</li>
+          </ul>
+        </div>
+        <p class="note">Items scoring at least 0.04 are ranked. The top-<var>k</var> items are added to the prompt as a separately marked memory block.</p>
+      </div>
+      <div>
+        <h3>Governance and reflection</h3>
+        <ul class="points">
+          <li><strong>Explicit updates.</strong> Exact duplicates are not stored. A revision must match exactly one entry. Forgetting removes matches from episodic and core memory.</li>
+          <li><strong>Bounded storage.</strong> When the episodic store exceeds 120,000 characters, the lowest-importance items are pruned first, then the oldest.</li>
+          <li><strong>Write-time safety scan.</strong> Each write is checked for prompt-injection phrases, credential-access commands, and invisible Unicode characters.</li>
+          <li><strong>Asynchronous reflection.</strong> Every eight turns, on request, and at session end, the LLM turns the recent transcript into a JSON summary, a profile update, and a list of durable memories. A rule-based extractor takes over if no model is available. Reflection runs after the reply has been delivered, so it adds no latency to the current turn.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="requirements">
+  <div class="wrap">
+    <div class="eyebrow">Evaluation</div>
+    <h2>Feasibility requirements</h2>
+    <p class="lede">Before reporting results, we define what a companion service needs from the platform. Each result is then checked against these requirements.</p>
+    <div class="reqs">
+      <div class="req"><div class="id">R1</div><h3>Response onset</h3><p>Users of communication robots prefer a response in about 1&nbsp;s. Speech recognition and synthesis share that budget, so the LLM's time to first token must stay below 0.5&nbsp;s.</p><span class="status">✓ Met: 75–210&nbsp;ms</span></div>
+      <div class="req"><div class="id">R2</div><h3>Speech continuity</h3><p>Generation must stay ahead of speech playback. Speech at about 150 words/min needs roughly 3–4&nbsp;tokens/s.</p><span class="status">✓ Met: 15 and 7.2&nbsp;tok/s</span></div>
+      <div class="req"><div class="id">R3</div><h3>Memory availability</h3><p>The target evidence must appear in the top eight candidates, and revised preferences must outrank stale ones.</p><span class="status partial">◐ Met for 4 of 5 conditions</span></div>
+      <div class="req"><div class="id">R4</div><h3>Locality</h3><p>Dialogue, memory, and inference must run on the device without network access.</p><span class="status">✓ By design</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="results">
+  <div class="wrap">
+    <div class="eyebrow">Results</div>
+    <h2>On-device inference</h2>
+    <div class="grid-split">
+      <div>
+        <p>Eight open-source models in two size classes were converted with the RKLLM Toolkit and benchmarked on the RK3588 NPU: three warm-up turns, then 15 measured turns. TTFT runs from request submission at the local model interface to the first generated token. It includes prompt prefill but excludes speech recognition and synthesis.</p>
+        <div class="table-wrap" style="margin: 20px 0;">
+          <table>
+            <thead><tr><th>Configuration</th><th class="n">TTFT</th><th class="n">Throughput</th></tr></thead>
+            <tbody>
+              <tr><td>Gemma-3-1B / Llama-3.2-1B</td><td class="n">≈ 75 ms</td><td class="n">≈ 15 tok/s</td></tr>
+              <tr><td>Gemma-2-2B</td><td class="n">≈ 210 ms</td><td class="n">7.2 tok/s</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The 1B-class models use under 8% of the 1&nbsp;s response budget. Gemma-2-2B still leaves about 0.8&nbsp;s for speech recognition, retrieval, and synthesis. Model size is therefore a real design parameter, even on the same edge platform.</p>
+        <p class="note">Models tested — 1B–1.5B: Gemma-3-1B, Llama-3.2-1B, Qwen-2.5-1.5B, DeepSeek-R1-1.5B. 2B–3B: Gemma-2-2B, Llama-3.2-3B, Qwen-3.5-3B, Phi-3.5-mini. This benchmark measures latency and throughput, not response quality.</p>
+      </div>
+      <figure>
+        <div class="fig"><img src="static/images/llm_performance.png" width="1800" height="2878" loading="lazy" alt="Two radar charts comparing TTFT, throughput, total tokens, total time, and output characters for the 2B–3B and 1B–1.5B model groups."></div>
+        <figcaption><b>Figure 3.</b> Local LLM performance across the 1B–3B model families.</figcaption>
+      </figure>
+    </div>
+
+    <h2 style="margin-top: 64px;">30-day memory stress test</h2>
+    <p class="lede">The memory benchmark runs without LLM generation, so storage, update, and retrieval are measured on their own. It simulates 72 users with profiles from 20 professional domains over 30 days, with 48 queries per user per day: 103,680 retrieval probes in total. The benchmark also includes 600 safety-boundary checks, 216 revisions, 144 forgetting operations, and 432 prompt-budget measurements. Ground truth comes from construction: each probe has exactly one target item written by the generator. For preference probes, that target is the latest revision.</p>
+
+    <div class="grid-2" style="margin-top: 28px;">
+      <div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Condition</th><th class="n">Success@8</th><th class="n">Top-1</th><th class="n">MRR</th></tr></thead>
+            <tbody>
+              <tr><td>Anchored Event</td><td class="n">1.000</td><td class="n">1.000</td><td class="n">1.000</td></tr>
+              <tr><td>Stable Seed</td><td class="n">1.000</td><td class="n">1.000</td><td class="n">1.000</td></tr>
+              <tr><td>Current Preference</td><td class="n">0.995</td><td class="n">0.877</td><td class="n">0.920</td></tr>
+              <tr><td>Noisy Context</td><td class="n">0.960</td><td class="n">0.829</td><td class="n">0.866</td></tr>
+              <tr><td>Low Overlap</td><td class="n low">0.279</td><td class="n low">0.198</td><td class="n low">0.214</td></tr>
+              <tr class="total"><td>All probes</td><td class="n">0.863</td><td class="n">0.799</td><td class="n">0.818</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">Success@8: the target is in the top eight. Top-1: the target is ranked first. MRR: mean reciprocal rank, counted as 0 outside the top eight.</p>
+        <p style="margin-top: 18px;">Retrieval is reliable for stable, anchored, revised, and noisy queries. It breaks down for <strong>low-overlap paraphrases</strong>: the hashed token vectors cannot recognize a paraphrase that shares few words with the stored item. A compact on-device embedding model is the natural next step.</p>
+      </div>
+      <figure>
+        <div class="fig"><img src="static/images/memory_longitudinal.png" width="1800" height="947" loading="lazy" alt="Line chart of daily Success, Top-1 Success, and MRR over 30 days: near 1.0 in the first week, then stabilizing around 0.8 with inter-user variance."></div>
+        <figcaption><b>Figure 4.</b> Longitudinal retrieval performance. Lines are daily means; bands show inter-user standard deviation. Scores are near saturation in the first week and settle as episodic memories and preference revisions accumulate.</figcaption>
+      </figure>
+    </div>
+
+    <div class="grid-2" style="margin-top: 32px;">
+      <figure>
+        <div class="fig"><img src="static/images/memory_heatmap.png" width="1800" height="866" loading="lazy" alt="Heatmap of Success, Top-1 Success, and MRR across five retrieval conditions."></div>
+        <figcaption><b>Figure 5.</b> Task-level retrieval heatmap.</figcaption>
+      </figure>
+      <figure>
+        <div class="fig"><img src="static/images/memory_dashboard.png" width="1800" height="1191" loading="lazy" alt="Horizontal bar chart summarizing retrieval, governance, and prompt-budget indicators on a 0 to 1 scale."></div>
+        <figcaption><b>Figure 6.</b> Capability dashboard. Some governance bars describe intended states rather than performance; for example, 0 for Append-only is the desired outcome.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="hardware">
+  <div class="wrap">
+    <div class="eyebrow">Hardware</div>
+    <h2>A soft robot built around one edge board</h2>
+    <div class="grid-split">
+      <figure>
+        <div class="fig"><img src="static/images/hardware.jpg" width="1800" height="1171" loading="lazy" alt="Photo of the LubanCat 4 RK3588 board with labeled power input, optional Wi-Fi and Ethernet, and an earphone with microphone."></div>
+        <figcaption><b>Figure 7.</b> Hardware interface and deployment configuration.</figcaption>
+      </figure>
+      <div>
+        <ul class="points">
+          <li><strong>Main computer.</strong> A LubanCat 4 board with the Rockchip RK3588 runs the local LLM, memory, speech recognition and synthesis, and robot control.</li>
+          <li><strong>Sensor hub.</strong> An Arduino Nicla Vision provides the camera and IMU. It samples the pressure sensors through its ADC and sends synchronized packets to the RK3588 over USB-C CDC serial.</li>
+          <li><strong>Soft body.</strong> The ABS shell, printed on a Bambu Lab X1, is wrapped in wool yarn to give a compliant surface for touch and hugging. Pairing compliant contact with tactile sensing follows prior work on <a href="https://doi.org/10.1109/IROS55552.2023.10342266">visuotactile pneumatic devices for compliant oropharyngeal swab sampling</a> (Li et al., IROS 2023).</li>
+          <li><strong>Touch sensing.</strong> Four pressure sensors in the ears and paws detect touch and hugging.</li>
+          <li><strong>Expressive output.</strong> Local text-to-speech plays the reply while synchronized eye animations play on an OLED screen.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="margin-top: 48px;">
+      <h3>Scope and limitations</h3>
+      <p class="lede">This work evaluates system feasibility, not companion effectiveness. The memory workload uses synthetic profiles, and the inference benchmark measures latency rather than conversational quality. On the physical robot, so far we have verified only that the full pipeline runs. End-to-end response timing, touch-triggered responses, and studies with human participants are future work. Local processing reduces privacy risks but does not eliminate them.</p>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="bibtex">
+  <div class="wrap">
+    <div class="eyebrow">Citation</div>
+    <h2>BibTeX</h2>
+    <div class="bib">
+      <button class="copy" type="button" data-target="bibtex-code">Copy</button>
+<pre><code id="bibtex-code" style="background:none;border:0;padding:0;">@inproceedings{he2027keroagent,
+  title     = {Kero-Agent: An Edge-Native Companion Robot with Hierarchical Memory and Local Large Language Model},
+  author    = {He, Mingshan and Tanaka, Hiroto},
+  booktitle = {Proceedings of the IEEE/SICE International Symposium on System Integration (SII)},
+  year      = {2027}
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>The memory design draws on the built-in memory of Hermes Agent. On-device inference uses Rockchip's <a href="https://github.com/airockchip/rknn-llm">RKNN-LLM</a> runtime.</p>
+    <p>© 2026 Mingshan He and Hiroto Tanaka · Institute of Science Tokyo</p>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var toggle = document.querySelector('.theme-toggle');
+    try {
+      var saved = localStorage.getItem('kero-theme');
+      if (saved === 'light' || saved === 'dark') root.setAttribute('data-theme', saved);
+    } catch (e) {}
+    toggle.addEventListener('click', function () {
+      var current = root.getAttribute('data-theme') ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var next = current === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem('kero-theme', next); } catch (e) {}
+    });
+
+    document.querySelectorAll('.copy').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var text = document.getElementById(btn.getAttribute('data-target')).textContent;
+        var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
+        } else { fallback(text); done(); }
+      });
+    });
+    function fallback(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  })();
+</script>
+</body>
+</html>

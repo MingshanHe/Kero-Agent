@@ -1,242 +1,224 @@
-# Kero Agent
+# Kero-Agent: An Edge-Native Companion Robot with Hierarchical Memory and Local Large Language Model
 
-Kero 是一个基于 Python CLI 的智能陪伴机器人原型。它参考 Hermes Agent 的工程思路，但刻意把范围收窄到陪伴系统最重要的两条主线：
+**Mingshan He and Hiroto Tanaka**  
+Department of Mechanical Engineering, Institute of Science Tokyo
 
-- Memory：稳定、可控、可召回的长期记忆。
-- Evolution：在对话过程中反思，并逐步更新用户画像和陪伴策略。
+*IEEE/SICE International Symposium on System Integration (SII 2027)*
 
-Kero 不包含 Tools、MCP、技能系统、多平台网关、子代理、浏览器或文件操作工具。它的第一屏就是 CLI 对话。
+[**Project Page**](https://mingshanhe.github.io/Kero-Agent/) | [**Code**](https://github.com/MingshanHe/Kero-Agent) | **Paper** (link coming soon)
 
-## Quick Start
+<p align="center">
+  <img src="assets/architecture.png" width="95%" alt="Kero-Agent system architecture">
+</p>
 
-```bash
-cd kero-agent
-python -m kero
+## Overview
+
+Companion robots for homes and care environments need fast responses and long-term memory of their users. Cloud-based inference sends interaction data to external services and adds ongoing API costs. **Kero-Agent** is an edge-native companion robot built on the Rockchip **RK3588**. It combines:
+
+- **Local LLM inference** on the RK3588 NPU. Open-source models are converted to the RKLLM format and served through an OpenAI-compatible local endpoint.
+- **Hierarchical long-term memory** with recent, episodic, semantic, and core layers, all stored as local files.
+- **Asynchronous reflection**, which updates the user profile and long-term memory after the reply has been delivered. Model weights are never changed.
+- **Multimodal sensing and embodied output**: microphone, IMU, pressure sensors, and camera as inputs; local text-to-speech and OLED eye animations as outputs.
+
+During normal dialogue and memory processing, no network connection is required.
+
+## Key Results
+
+| Evaluation | Result |
+| --- | --- |
+| Onboard inference, best 1B-class models (Gemma-3-1B, Llama-3.2-1B) | TTFT ≈ 75 ms, ≈ 15 tokens/s |
+| Onboard inference, Gemma-2-2B | TTFT ≈ 210 ms, 7.2 tokens/s |
+| 30-day memory stress test (72 simulated users, 103,680 probes) | Success@8 = 0.863, Top-1 = 0.799, MRR = 0.818 |
+| Stable-seed / anchored-event retrieval | 1.000 on all metrics |
+| Current-preference retrieval (after revisions) | Success@8 = 0.995 |
+| Low-overlap (paraphrased) retrieval | Success@8 = 0.279 (main target for future work) |
+
+The paper sets feasibility requirements before reporting results:
+
+- **R1, response onset:** TTFT < 0.5 s, within a ~1 s robot response budget.
+- **R2, speech continuity:** generation must stay ahead of speech playback (more than ~3–4 tokens/s).
+- **R3, memory availability:** the target evidence must appear in the top-8 candidates, and revised preferences must rank above stale ones.
+- **R4, locality:** dialogue, memory, and inference run on the device.
+
+The 1B-class configurations meet R1 and R2 with margin. R4 holds by design. R3 is met for every retrieval condition except low-overlap queries.
+
+## Hierarchical Memory
+
+<p align="center">
+  <img src="assets/memory.png" width="95%" alt="Kero-Agent memory system">
+</p>
+
+| Layer | Purpose | Implementation |
+| --- | --- | --- |
+| Recent | Short-term dialogue context | Last 8 turns plus `data/sessions/current.jsonl` |
+| Episodic | Events, reflections, extracted facts | `data/memory/long_term.jsonl` (importance, timestamp, tags) |
+| Semantic | Structured preferences, styles, topics | `data/profile/profile.json` (latest 40 entries per list) |
+| Core | Stable user profile and companion strategy | `data/memories/USER.md` (3,000 chars) and `MEMORY.md` (5,000 chars), injected into every prompt |
+
+**Retrieval.** Each stored item *m* is scored against the query *q* with a lightweight local function. No external embedding model or vector database is used, so retrieval does not compete with the LLM for the NPU:
+
+```
+s(q, m) = 0.50 * s_sem + 0.30 * s_lex + 0.12 * importance + 0.08 * s_rec
 ```
 
-首次运行如果没有配置 LLM，Kero 会进入本地规则 fallback 模式，方便先验证 CLI 和 memory 链路。
+- `s_sem` is the cosine similarity of 256-d signed feature-hashing vectors.
+- `s_lex` is the fraction of query tokens that also appear in *m*.
+- `s_rec = 0.5^(age_days / 60)`.
 
-在对话中输入 `/speak` 可以把最后一次 LLM 回复转换为语音并播放；启动时加 `--speak` 可自动播放每次回答。
+Items scoring at least `recall_min_score` (0.04) are ranked. The top-`k` items are inserted into the prompt as a separately marked memory block. See [`kero/memory/retrieval.py`](kero/memory/retrieval.py).
 
-## Setup
+**Governance.** Memory updates follow explicit rules:
 
-交互式配置：
+- Exact duplicates are not stored.
+- A revision or removal must match exactly one entry by substring.
+- When the long-term store exceeds its character budget, the lowest-importance items are pruned first, then the oldest.
+- Every write is scanned for prompt-injection phrases, secret-exfiltration commands, and invisible Unicode characters ([`kero/memory/safety.py`](kero/memory/safety.py)).
 
-```bash
-python -m kero setup
-```
+**Reflection.** Reflection runs every 8 turns (once at least 3 turns exist), on `/reflect`, and on `/exit`. The LLM returns strict JSON with a session summary, a profile update, and a list of durable memories. If no LLM is available, or its output cannot be parsed, a rule-based extractor is used instead. See [`kero/evolution/reflection.py`](kero/evolution/reflection.py).
 
-仅配置 Copilot（直接进入 Copilot device code flow）：
+## Hardware Prototype
 
-```bash
-python -m kero setup --only-copilot
-```
+<p align="center">
+  <img src="assets/prototype.png" width="45%" alt="Kero-Agent physical prototype">
+</p>
 
-非交互写入默认配置：
+- **Main computer:** LubanCat 4 (RK3588 SoC with a 6-TOPS NPU). It runs the local LLM, memory, ASR/TTS, and robot control.
+- **Sensor hub:** Arduino Nicla Vision, with a camera and IMU. It samples the pressure sensors through its ADC and sends synchronized packets to the RK3588 over USB-C CDC serial.
+- **Body:** ABS shell printed on a Bambu Lab X1 and wrapped in wool yarn for soft physical interaction. Four pressure sensors in the ears and paws detect touch and hugging.
+- **Output:** speaker (local TTS) and OLED eye animations.
 
-```bash
-python -m kero setup --non-interactive
-```
-
-配置文件默认写入：
+## Repository Structure
 
 ```text
-kero-agent/data/config.yaml
-kero-agent/data/.env
+Kero-Agent/
+  kero/
+    cli/          # CLI chat loop, banner, setup and config commands
+    llm/          # provider profiles and LLM client (cloud, OpenAI-compatible, local RKNN)
+    memory/       # curated memory, long-term store, retrieval, safety scanning
+    evolution/    # reflection and profile evolution
+    tools/        # text-to-speech helpers
+  rknn-llm/
+    examples/rkllm_server_demo/   # RKLLM server for the RK3588 NPU (OpenAI-compatible endpoint)
+  data/           # runtime data (config, memories, sessions); do not commit personal data
+  tests/          # unit tests
+  assets/         # figures used in this README
+  docs/           # project page (GitHub Pages: deploy from the default branch, /docs folder)
 ```
 
-项目根目录提供 `kero.yaml.example`，可以复制成 `kero.yaml` 作为项目级默认配置。
+## Getting Started
 
-设置 `KERO_HOME` 后，配置和运行数据会写到指定目录：
+### Requirements
+
+- Python ≥ 3.10
+- On-device inference: an RK3588 board with the RKLLM runtime (`librkllmrt.so`) and a model converted with the RKLLM Toolkit
 
 ```bash
-export KERO_HOME=~/.kero
-python -m kero setup
+pip install -e .            # or: pip install -e ".[dev]" to include pytest
 ```
 
-## Config Commands
+### Run the companion CLI
 
 ```bash
-python -m kero config show
-python -m kero config path
-python -m kero config init
+python -m kero              # start chatting
+python -m kero --speak      # also play each reply with TTS
+python -m kero --no-llm     # rule-based fallback; tests the memory pipeline without an LLM
+```
+
+If no LLM is configured, Kero falls back to local rule-based replies so the CLI, memory, and reflection pipeline can still be tested.
+
+### Run a local LLM on the RK3588 NPU
+
+1. Convert a Hugging Face model (e.g., Gemma-3-1B or Llama-3.2-1B) to `.rkllm` with the RKLLM Toolkit.
+2. Start the RKLLM server on the board. It serves an OpenAI-compatible `/v1/chat/completions` endpoint on port 8080 and supports streaming:
+
+   ```bash
+   cd rknn-llm/examples/rkllm_server_demo/rkllm_server
+   sudo bash fix_freq_rk3588.sh          # optional: fix CPU/NPU frequencies for stable latency
+   python flask_server.py --rkllm_model_path /path/to/model.rkllm --target_platform rk3588
+   ```
+
+3. Point Kero at the local endpoint:
+
+   ```bash
+   python -m kero config set llm.provider custom
+   python -m kero config set llm.base_url http://127.0.0.1:8080/v1
+   python -m kero config set llm.model rkllm
+   python -m kero
+   ```
+
+The server's default decoding settings are a 4,096-token context, up to 512 new tokens, and top-k = 1.
+
+### Configuration
+
+```bash
+python -m kero setup                    # interactive setup
+python -m kero setup --non-interactive  # write default config
+python -m kero config show | path | init | validate
 python -m kero config get llm.provider
 python -m kero config set llm.provider openrouter
-python -m kero config set llm.model anthropic/claude-sonnet-4.6
-python -m kero config validate
 ```
 
-配置优先级从低到高：
+Configuration is resolved in this order, lowest priority first: built-in defaults, then project `kero.yaml`, then `$KERO_HOME/config.yaml`, then environment variables (`KERO_PROVIDER`, `KERO_MODEL`, …), then CLI flags (`--provider`, `--model`, `--base-url`). Copy [`kero.yaml.example`](kero.yaml.example) to `kero.yaml` to set project defaults. Set `KERO_HOME=~/.kero` to keep runtime data outside the repository.
+
+Memory parameters in `kero.yaml`:
+
+```yaml
+memory:
+  short_term_turns: 8
+  recall_top_k: 6
+  recall_min_score: 0.04
+  memory_char_limit: 5000
+  user_char_limit: 3000
+  long_term_char_limit: 120000
+  reflection_interval_turns: 8
+  reflection_min_turns: 3
+```
+
+Supported providers include:
+
+- local backends: `custom` (also `local`, `ollama`, `vllm`, `llama.cpp`, `lmstudio`), `rknn`, `llmapp`
+- cloud APIs: `openai`, `openrouter`, `anthropic`, `deepseek`, `qwen`, `kimi`, `zai`, `nvidia`, `huggingface`, `copilot`, and others (run `/model` to list them all)
+
+### In-chat commands
 
 ```text
-默认值
-  -> 项目 kero.yaml
-  -> $KERO_HOME/config.yaml
-  -> 环境变量
-  -> 本次 CLI 参数
+/help                 show commands
+/profile              print the structured user profile
+/memory [query]       recall long-term memories
+/remember <text>      save a durable memory
+/forget <substring>   remove matching memories
+/reflect              run reflection now
+/model                show model configuration and providers
+/config               show configuration and memory status
+/memory-status        show memory file paths and sizes
+/speak                play the last reply as speech
+/clear                clear short-term context
+/exit                 reflect and exit
 ```
 
-常用环境变量：
+### Tests
 
 ```bash
-export KERO_PROVIDER=openrouter
-export KERO_MODEL=anthropic/claude-sonnet-4.6
-export OPENROUTER_API_KEY=...
+pytest
 ```
 
-聊天时也可以临时覆盖：
+## Privacy Note
 
-```bash
-python -m kero --provider custom --model llama3 --base-url http://127.0.0.1:11434/v1
-python -m kero --no-llm
+All dialogue records and memory files are stored locally under `data/` (or `$KERO_HOME`). This directory can contain user profiles, conversation history, and API keys. **Do not commit it.** Add `data/` to `.gitignore`, or set `KERO_HOME` to a directory outside the repository. Local processing reduces, but does not remove, privacy risks such as device compromise or physical access.
+
+## Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@inproceedings{he2027keroagent,
+  title     = {Kero-Agent: An Edge-Native Companion Robot with Hierarchical Memory and Local Large Language Model},
+  author    = {He, Mingshan and Tanaka, Hiroto},
+  booktitle = {Proceedings of the IEEE/SICE International Symposium on System Integration (SII)},
+  year      = {2027}
+}
 ```
 
-## Supported LLM Providers
+## Acknowledgments
 
-Kero 使用 Hermes 风格的 provider profile，但只保留聊天所需的轻量路径。
-
-可直接使用的 provider：
-
-- `openai`
-- `openrouter`
-- `anthropic`
-- `custom` / `local` / `lmstudio` / `ollama`
-- `deepseek`
-- `kimi`
-- `kimi-cn`
-- `zai`
-- `qwen`
-- `nvidia`
-- `nous-api`
-- `ai-gateway`
-- `huggingface`
-- `novita`
-- `xiaomi`
-- `arcee`
-- `minimax`
-
-保留但不启用的重型 Hermes 路径：
-
-- `openai-codex`
-- `bedrock`
-
-这些需要 OAuth、SDK auth 或复杂 runtime，Kero 第一版不引入。
-
-## CLI Commands
-
-进入聊天后支持：
-
-```text
-/help                 查看命令
-/profile              查看结构化用户画像
-/memory [query]       召回长期记忆
-/remember <text>      显式保存记忆
-/forget <substring>   删除匹配记忆
-/reflect              立即反思
-/model                查看模型配置和 provider 列表
-/config               查看当前配置和 memory 状态
-/memory-status        查看 memory 文件路径、大小、存在状态
-/clear                清空短期上下文
-/exit                 反思并退出
-```
-
-## Memory Design
-
-Kero 的 memory 参考 Hermes 的内置 memory，而不是外部 memory provider。
-
-### Curated Memory
-
-启动时会保证这两个文件存在：
-
-```text
-data/memories/MEMORY.md
-data/memories/USER.md
-```
-
-用途：
-
-- `MEMORY.md`：Kero 的长期观察、陪伴策略、稳定事实。
-- `USER.md`：用户画像、偏好、称呼、交流风格。
-
-它们使用 Hermes 的关键设计：
-
-- 字符上限，避免 prompt 无限增长。
-- 使用 `§` 分隔多条记忆。
-- add / replace / remove 都使用唯一子串匹配。
-- 写入前扫描 prompt injection、密钥读取、SSH 后门、隐藏 Unicode 等风险。
-- 启动时捕获 frozen snapshot；当前会话中新增记忆会落盘，但不会改变已构建的 memory snapshot。
-
-### Long-Term Memory
-
-```text
-data/memory/long_term.jsonl
-```
-
-这是 Kero 为陪伴场景增加的轻量长期记忆。它保存反思抽取出的事实、偏好、情绪线索和主题，并用关键词 + 哈希向量做本地召回，不依赖外部 embedding 或向量库。
-
-### Session And Reflection
-
-```text
-data/sessions/current.jsonl
-data/profile/profile.json
-data/reflections/reflections.jsonl
-```
-
-Kero 会在每 N 轮、`/reflect`、`/exit` 时反思当前会话。有 LLM 时要求模型返回严格 JSON；没有 LLM 或解析失败时，用规则提取“我叫/叫我/我喜欢/记住/以后你...”这类稳定信息。
-
-## Project Structure
-
-```text
-kero-agent/
-  kero/
-    cli/             # CLI loop、banner、setup、config 命令
-    llm/             # provider profile 和 LLM client
-    memory/          # curated memory、长期记忆、召回、安全扫描
-    evolution/       # 反思和自我进化
-  data/              # 运行时数据
-  tests/             # 单元测试
-```
-
-每个主要目录都有自己的 README，说明文件职责、核心函数和扩展建议。
-
-## How Kero Differs From Hermes
-
-保留：
-
-- `MEMORY.md` / `USER.md` 双文件记忆。
-- 安全扫描和字符预算。
-- 会话边界反思。
-- provider profile 的配置思想。
-- 动态召回记忆与用户输入分隔。
-
-删除：
-
-- Tools / MCP。
-- 外部 memory provider 插件系统。
-- skills。
-- gateway / cron / subagent。
-- SQLite FTS5 session search。
-
-## FAQ
-
-### 为什么 `MEMORY.md` 和 `USER.md` 是空文件？
-
-空文件代表 curated memory 已初始化但还没有条目。Kero 不写注释到文件里，因为注释会被当成真实记忆解析。
-
-### `.lock` 文件是什么？
-
-Kero 写 JSONL 和 memory 文件时使用 lock 文件，避免多个进程同时写入造成损坏。它们是正常运行产物。
-
-### 没有 API key 能不能用？
-
-可以。Kero 会使用本地规则 fallback 回复，并且仍然能测试 memory 和 reflection 的基本流程。
-
-### 如何使用本地模型？
-
-配置 OpenAI-compatible 本地服务：
-
-```bash
-python -m kero config set llm.provider custom
-python -m kero config set llm.base_url http://127.0.0.1:1234/v1
-python -m kero config set llm.model your-local-model
-```
+The memory design draws on the built-in memory of Hermes Agent. On-device inference uses Rockchip's [RKNN-LLM](https://github.com/airockchip/rknn-llm) runtime.

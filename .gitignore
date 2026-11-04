@@ -1,1 +1,6 @@
 hermes-repo
+
+# Runtime data: may contain API keys, conversation history, and user profiles.
+# Kero recreates these files on first run (or set KERO_HOME to keep them elsewhere).
+data/*
+!data/README.md
